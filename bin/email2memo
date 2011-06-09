@@ -1,0 +1,42 @@
+#!/bin/bash
+getname() {
+	local in_email=$1 name email
+	while read -r name email; do
+		email=${email%:*}
+		if [[ $email == *@* && $email == $in_email ]]; then
+			echo "$name"
+			return 0
+		fi
+	done < ~nanobot/emails.txt
+	echo "$in_email"
+	return 1
+}
+
+# todo: is this necessary? Nanobot handles From: header in outgoing mails.
+getaddr() {
+	local in_name=$1 name email
+	while read -r name email; do
+		if [[ $name == $in_name ]]; then
+			echo "$email"
+			return 0
+		fi
+	done < ~nanobot/emails.txt
+	return 1
+}
+
+mail=$(mktemp)
+cat >"$mail"
+
+sender=$(formail -zcx "from:" <"$mail" | sed -rn 's/^(.+ <)?([^ ]+@[a-z0-9.-]+).*/\2/ip')
+sender=$(getname "$sender")
+
+rcpt=$(formail -zcx "to:" <"$mail" | sed -rn 's/^.*nanobot\+([^@]+)@.*/\1/ip')
+
+sed -n '1,/^$/d; /^-- /q; p' <"$mail" | sed '/^>/d' | tr '\n\t' '  ' | tr -s ' ' | {
+	read -r -N 400 text
+	printf '%d\t%s\t%s\t%s\n' $(date +%s) '*' "$sender" "$text" | {
+		cat >> ~nanobot/memos/"$rcpt".db
+	}
+}
+
+rm -f "$mail"

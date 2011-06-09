@@ -1,0 +1,5 @@
+#!/bin/bash
+# I gave up.
+
+q=$(~grawity/code/tools/urlencode.pl $* | tr '\n' '+' | sed 's/+$//')
+echo "${REMOTE_USER:-$USER}: http://lmgtfy.com/?q=$q"

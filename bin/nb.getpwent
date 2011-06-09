@@ -1,0 +1,89 @@
+#!/usr/bin/env php
+<?php
+
+class pwent {
+	static $attributes = array(
+		"uid", "uidNumber", "gidNumber",
+		"gecos", "homeDirectory", "loginShell",
+		// and some extras
+		"cn",
+	);
+
+	function __construct($ldif=null) {
+		if ($ldif) {
+			$this->name = $ldif["uid"][0];
+			$this->passwd = "*";
+			$this->uid = $ldif["uidNumber"][0];
+			$this->gid = $ldif["gidNumber"][0];
+			$this->_cn = @$ldif["cn"][0];
+			$this->gecos = @$ldif["gecos"][0];
+			$this->dir = @$ldif["homeDirectory"][0];
+			$this->shell = @$ldif["loginShell"][0];
+		}
+	}
+
+	function __toString() {
+		return "{$this->name}:{$this->passwd}:{$this->uid}:{$this->gid}"
+			.":{$this->gecos}:{$this->dir}:{$this->shell}";
+	}
+}
+
+function cn_getpwuid($uid) {
+	global $ldap, $limit;
+	$pwents = array();
+
+	$res = @ldap_list($ldap, "ou=people,dc=cluenet,dc=org",
+		"(&".
+			"(objectClass=posixAccount)".
+			"(|".
+				"(uid=$uid)".
+				"(uidNumber=$uid)".
+				"(clueIrcNick=$uid)".
+				"(cn=$uid)".
+				"(cn=$uid *)".
+				"(cn=* $uid)".
+				"(gecos=$uid)".
+			")".
+		")",
+		pwent::$attributes);
+
+	if ($res) {
+		for ($ent = ldap_first_entry($ldap, $res);
+			$ent != false;
+			$ent = ldap_next_entry($ldap, $ent)) {
+			$pwents[] = new pwent(ldap_get_attributes($ldap, $ent));
+			if (count($pwents) == $limit)
+				break;
+		}
+	}
+
+	return array($pwents, ldap_count_entries($ldap, $res));
+}
+
+$limit = 3;
+
+$ldap = ldap_connect("ldap://ldap.cluenet.org");
+ldap_set_option($ldap, LDAP_OPT_PROTOCOL_VERSION, 3);
+
+$long = !(basename($argv[0]) == "nb.id");
+$query = $argv[1];
+
+list ($pws, $num) = cn_getpwuid($query);
+if ($pws) {
+	foreach ($pws as $pw) {
+		if ($long)
+			print $pw."\n";
+		else {
+			#list($cn,) = explode(",", $pw->gecos, 2);
+			$cn = $pw->_cn;
+			$profile = "http://search.cluenet.org/?q={$pw->name}";
+			print "\"$query\": {$pw->name} is ".
+				($cn == $pw->name ? "" : "$cn ").
+				"[uid={$pw->uid}] $profile\n";
+		}
+	}
+	if ($num > $limit)
+		print "(".($num-$limit)." more)\n";
+} else {
+	print "\"$query\": No such user.\n";
+}

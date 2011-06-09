@@ -1,0 +1,10 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use WWW::Google::Calculator;
+
+my $user = $ENV{REMOTE_USER} // $ENV{USER};
+my $query = shift @ARGV // die "Usage: nb.gcalc \"<query>\"\n";
+
+my $calc = WWW::Google::Calculator->new;
+print "$user: ", $calc->calc($query), "\n";

@@ -1,0 +1,28 @@
+#!/bin/bash
+urlencode() { ~grawity/bin/urlencode "$@"; }
+
+host=$1
+port=${2:-22}
+if [[ $host == *:* ]]; then
+	request="[$host]:$port"
+else
+	request="$host:$port"
+fi
+
+temp=$(mktemp)
+
+curl -sL "http://equal.cluenet.org/~grawity/misc/hostkeys.php?host=$(urlencode "$host")&port=$(urlencode "$port")" | grep -v '^#' | sort > "$temp"
+fp_equal=$(ssh-keygen -lf "$temp")
+
+ssh-keyscan -t rsa,dsa -p "$port" "$host" 2>/dev/null | sort > "$temp"
+fp_panther=$(ssh-keygen -lf "$temp")
+
+rm -f "$temp"
+
+if [[ $fp_equal == $fp_panther ]]; then
+	echo "$fp_panther"
+else
+	echo "Warning: Keys for $request differ!" 
+	echo "$fp_equal" | sed 's/^/From Equal: /'
+	echo "$fp_panther" | sed 's/^/From Panther: /'
+fi

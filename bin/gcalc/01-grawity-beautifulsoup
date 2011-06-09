@@ -1,0 +1,46 @@
+#!/usr/bin/python
+import os, sys
+import urllib2
+import re
+import BeautifulSoup as soup
+
+UserAgent = "Lynx/2.8.8dev.2 libwww-FM/2.14 SSL-MM/1.4.1"
+
+nick = os.environ.get("REMOTE_USER", os.environ["USER"])
+query = sys.argv[1]
+
+def calc(query):
+	url = "http://www.google.com/search?ie=UTF-8&oe=utf-8&num=1&q=" + urllib2.quote(query)
+
+	ua = urllib2.build_opener()
+	ua.addheaders = [
+		("User-Agent", UserAgent),
+		("Accept", "application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,*/*;q=0.5"),
+		("Accept-Language", "en-US,en;q=0.8"),
+		("Accept-Charset", "utf-8"),
+		]
+	data = ua.open(url).read()
+	open("/tmp/gcalc-response.html", "w").write(data)
+	doc = soup.BeautifulSoup(data)
+
+	print url
+	
+	hdr = doc.find("h2", {"class": "r", "style": "font-size:138%"})
+	if hdr:
+		ans = hdr.b.renderContents()
+		ans = re.sub(r'<sup>(\d+)</sup>', r'^\1', ans)
+		return ans
+	
+	hdr = doc.find("h3", {"class": "r"})
+	if hdr:
+		ans = hdr.b.renderContents()
+		return ans
+
+	raise Exception(doc.prettify())
+
+try:
+	ans = calc(query)
+	print '%s: %s' % (nick, ans)
+except Exception as e:
+	print '%s: Error.' % nick
+	open('/tmp/x', 'w').write(str(e))

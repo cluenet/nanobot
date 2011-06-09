@@ -1,0 +1,37 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use URI::Escape;
+use LWP::UserAgent;
+use JSON;
+use Data::Dumper;
+
+my $user = $ENV{REMOTE_USER} // $ENV{USER};
+my $query = join " ", @ARGV;
+
+my $ua = LWP::UserAgent->new;
+$ua->agent('Lynx/2.8.8dev.2 libwww-FM/2.14 SSL-MM/1.4.1');
+
+my $url = 'http://www.google.com/ig/calculator?hl=en&q='.uri_escape($query);
+my $resp = $ua->get($url);
+$resp->is_success or die "$url => ".$resp->status_line."\n";
+my $data = $resp->decoded_content;
+
+if (my @data = $data =~ /^\{lhs:\s*"(.*?)",rhs:\s*"(.*?)",error:\s*"(.*?)",icc:\s*(\w+)\s*\}$/) {
+	my ($lhs, $rhs, $err, $icc) = @data;
+	$err = int ($err or "0");
+	if ($err) {
+		print $user.": Error $err.\n";
+	} else {
+		print $user.": ".$lhs.($icc eq 'true' ? " is " : " = ").$rhs."\n";
+	}
+}
+else {
+	print $data."\n";
+}
+
+=off GODDAMNIT
+my $decoder = JSON->new->relaxed;
+my $data = $decoder->decode($resp->decoded_content);
+print Dumper($data);
+=cut

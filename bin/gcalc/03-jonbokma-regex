@@ -1,0 +1,51 @@
+#!/usr/bin/env perl
+
+# gcalc.pl - Google calculator example
+#
+# © Copyright, 2004-2005 By John Bokma, http://johnbokma.com/
+#
+# This script is for educational purposes only.
+#
+# $Id: gcalc.pl 1088 2008-09-30 19:11:55Z john $ 
+
+use strict;
+use warnings;
+
+use URI::Escape;
+use LWP::UserAgent;
+
+my $user = $ENV{REMOTE_USER} // $ENV{USER};
+
+unless ( @ARGV ) {
+
+    print "usage: gcalc.pl expression\n",
+          "    example: gcalc.pl 75 kg in stones\n";
+    exit( 1 ) ;
+}
+
+my $url = 'http://www.google.com/search?num=1&q=' .
+    uri_escape( join ' ' => @ARGV );
+
+my $ua = LWP::UserAgent->new( agent => 'Lynx/2.8.8dev.2 libwww-FM/2.14 SSL-MM/1.4.1' );
+my $response = $ua->get( $url );
+
+$response->is_success or
+    die "$url: ", $response->status_line;
+
+my $content = $response->content;
+
+my ( $result ) = $content =~ m|<td nowrap><font size=\+1><b>(.*?)</b></td>|;
+
+if ( $result ) {
+
+    $result =~ s/<sup>/^/g;
+    $result =~ s/&times;/x/g;
+    $result =~ s/<.+?>//g;
+
+    print "$user: $result\n";
+
+} else {
+
+    print "$user: No result\n";
+}
+
