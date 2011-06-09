@@ -1,6 +1,5 @@
 use warnings;
 use strict;
-#use brain;
 use Sys::Hostname;
 use File::stat;
 use Encode qw/encode/;
@@ -392,7 +391,6 @@ sub pubmsg {
 			} elsif (/^[A-Z]{3,4}$/) {
 				# TLA timezone specifiers
 				$TZ = uc $_;
-				$server->command("notice $srcNick It's highly recommended \003not\003 to use three-letter timezone abbreviations, since they can be ambiguous (such as 'EST').") unless $TZ =~ /^(UTC|GMT)$/;
 			} elsif (/^@(.+)$/) {
 				# @blah human-readable times
 				@wantdate = ($1);
