@@ -1,0 +1,13 @@
+#!/bin/bash -e
+cd ~/nanobot
+old=$(git rev-parse HEAD)
+if git pull -q origin master; then
+	new=$(git rev-parse HEAD)
+	if [[ $old == $new ]]; then
+		echo "noop"
+	else
+		echo "ok $new"
+	fi
+else
+	echo "err $?"
+fi

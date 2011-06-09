@@ -1,6 +1,7 @@
 #!perl
 use warnings;
 use strict;
+use feature 'switch';
 
 use Irssi;
 use Data::Dumper;
@@ -47,6 +48,19 @@ sub do_eval {
 	} elsif ($text =~ /^\//) {
 		Irssi::print("Cmd: !$nick! $text", $level);
 		$server->command("$text");
+	} elsif ($text =~ /update/) {
+		given (`~/bin/update`) {
+			when (/^noop$/) {
+				$server->command("msg $target $nick: already up-to-date");
+			}
+			when (/^ok (\w{5})\w+$/) {
+				$server->command("msg $target $nick: updated to $1");
+				Irssi::command("script load nbot.pl");
+			}
+			when (/^err (\d+)$/) {
+				$server->command("msg $target $nick: $_");
+			}
+		}
 	}
 }
 Irssi::signal_add "message public" => \&do_eval;
