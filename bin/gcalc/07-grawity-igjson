@@ -3,19 +3,24 @@ use warnings;
 use strict;
 use URI::Escape;
 use LWP::UserAgent;
-use JSON;
 use Data::Dumper;
+use Encode;
 
 my $user = $ENV{REMOTE_USER} // $ENV{USER};
 my $query = join " ", @ARGV;
 
 my $ua = LWP::UserAgent->new;
 $ua->agent('Lynx/2.8.8dev.2 libwww-FM/2.14 SSL-MM/1.4.1');
+$ua->agent("Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0");
+$ua->default_header(
+	"Accept-Charset" => "utf-8",
+	"Accept-Language" => "en-us,en;q=0.7",
+	);
 
 my $url = 'http://www.google.com/ig/calculator?hl=en&q='.uri_escape($query);
 my $resp = $ua->get($url);
 $resp->is_success or die "$url => ".$resp->status_line."\n";
-my $data = $resp->decoded_content;
+my $data = encode('utf-8', $resp->decoded_content);
 
 if (my @data = $data =~ /^\{lhs:\s*"(.*?)",rhs:\s*"(.*?)",error:\s*"(.*?)",icc:\s*(\w+)\s*\}$/) {
 	my ($lhs, $rhs, $err, $icc) = @data;
@@ -29,9 +34,3 @@ if (my @data = $data =~ /^\{lhs:\s*"(.*?)",rhs:\s*"(.*?)",error:\s*"(.*?)",icc:\
 else {
 	print $data."\n";
 }
-
-=off GODDAMNIT
-my $decoder = JSON->new->relaxed;
-my $data = $decoder->decode($resp->decoded_content);
-print Dumper($data);
-=cut
