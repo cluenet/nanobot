@@ -301,6 +301,8 @@ sub pubmsg {
 		return;
 	}
 
+	my $replyto = $server->ischannel($target) ? $target : $nick;
+
 	$cmd =~ s/\s+$//g;
 
 	$ENV{REMOTE_USER} = $nick;
@@ -497,6 +499,10 @@ sub pubmsg {
 
 	elsif ($cmd =~ /^uptime$/) {
 		$server->command("/msg $target ".hostname.": ".`uptime`);
+	}
+
+	elsif ($cmd =~ /^xyzzy$/) {
+		$server->command("^msg $replyto Nothing happens.");
 	}
 
 	delete $ENV{REMOTE_USER};
