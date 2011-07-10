@@ -498,7 +498,7 @@ sub pubmsg {
 	}
 
 	elsif ($cmd =~ /^uptime$/) {
-		$server->command("/msg $target ".hostname.": ".`uptime`);
+		$server->command("^msg $replyto ".hostname.": ".`uptime`);
 	}
 
 	elsif ($cmd =~ /^xyzzy$/) {
