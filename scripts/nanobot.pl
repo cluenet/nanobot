@@ -158,7 +158,7 @@ sub memo_store {
 			$mail_from =~ s/:[a-z]+$//;
 			print $s qq[Reply-To: $mail_from\n];
 		}
-		print $s qq[From: "$from on ClueNet" <nanobot+$from>\n];
+		print $s qq[From: $from on ClueNet <nanobot+$from>\n];
 		print $s qq[To: "$to_orig" <$mail_to>\n];
 		print $s qq[Subject: Memo from $from\n];
 
