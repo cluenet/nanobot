@@ -11,6 +11,8 @@ use Text::ParseWords;
 my $home = $ENV{NANOBOT_HOME} // $ENV{HOME};
 
 =changelog
+Aug 07:	grawity
+	Replace From/Sender with Reply-To
 May 16: grawity
 	Add timestamp to memo notices, remove channel name.
 Mar 20: grawity
@@ -151,13 +153,12 @@ sub memo_store {
 		print $s qq[X-Nanobot-Recipient: $to\n];
 
 		# use sender's email address as From header
-		my $mail_from = "nanobot+$from";
 		if (exists $emails{lc_irc $from}) {
-			$mail_from = $emails{lc_irc $from};
+			my $mail_from = $emails{lc_irc $from};
 			$mail_from =~ s/:[a-z]+$//;
-			print $s qq[Sender: nanobot <nanobot>\n];
+			print $s qq[Reply-To: $mail_from\n];
 		}
-		print $s qq[From: "$from on ClueNet" <$mail_from>\n];
+		print $s qq[From: "$from on ClueNet" <nanobot+$from>\n];
 		print $s qq[To: "$to_orig" <$mail_to>\n];
 		print $s qq[Subject: Memo from $from\n];
 
