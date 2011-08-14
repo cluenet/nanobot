@@ -1,10 +1,21 @@
 #!/usr/bin/env perl
 use warnings;
 use strict;
+use HTML::Entities;
 use URI::Escape;
 use LWP::UserAgent;
 use Data::Dumper;
 use Encode;
+
+binmode STDOUT, ':utf8';
+
+sub strip {
+	local $_ = shift;
+	$_ =~ s/\\x([0-9a-f]{2})/chr hex $1/ge;
+	$_ = decode_entities($_);
+	$_ =~ s|<sup>(.+?)</sup>|^$1|g;
+	return $_;
+}
 
 my $user = $ENV{REMOTE_USER} // $ENV{USER};
 my $query = join " ", @ARGV;
@@ -28,6 +39,7 @@ if (my @data = $data =~ /^\{lhs:\s*"(.*?)",rhs:\s*"(.*?)",error:\s*"(.*?)",icc:\
 	if ($err) {
 		print $user.": Error $err.\n";
 	} else {
+		$rhs = strip($rhs);
 		print $user.": ".$lhs.($icc eq 'true' ? " is " : " = ").$rhs."\n";
 	}
 }
