@@ -247,7 +247,7 @@ sub mtime($) {
 
 sub save_emails {
 	open my $s, ">", $email_db;
-	for my $nick (keys %emails) {
+	for my $nick (sort keys %emails) {
 		printf $s "%s %s\n", $nick, $emails{$nick};
 	}
 	close $s;
