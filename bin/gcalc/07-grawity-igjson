@@ -31,14 +31,19 @@ $ua->default_header(
 my $url = 'http://www.google.com/ig/calculator?hl=en&q='.uri_escape($query);
 my $resp = $ua->get($url);
 $resp->is_success or die "$url => ".$resp->status_line."\n";
-my $data = encode('utf-8', $resp->decoded_content);
+#my $data = encode('utf-8', $resp->decoded_content);
+my $data = $resp->decoded_content;
 
 if (my @data = $data =~ /^\{lhs:\s*"(.*?)",rhs:\s*"(.*?)",error:\s*"(.*?)",icc:\s*(\w+)\s*\}$/) {
 	my ($lhs, $rhs, $err, $icc) = @data;
-	$err = int ($err or "0");
-	if ($err) {
-		print $user.": Error $err.\n";
-	} else {
+	$err =~ s/\\x([0-9A-F]{2})/chr hex $1/ge;
+	if ($err =~ /^\d+$/) {
+		print $user.": Error $err\n";
+	}
+	elsif ($err) {
+		print $user.": $err.\n";
+	}
+	else {
 		$rhs = strip($rhs);
 		print $user.": ".$lhs.($icc eq 'true' ? " is " : " = ").$rhs."\n";
 	}
