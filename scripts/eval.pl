@@ -17,6 +17,7 @@ our @allowed = qw(
 	grawity!*grawity@grawity.vpn.cluenet.org
 	grawity!grawity@*.cluenet.org
 	grawity!grawity@192.168.151.102
+	grawity!grawity@*.nathan7.eu
 );
 
 #Irssi::theme_register([
@@ -30,7 +31,7 @@ sub allowed {
 sub do_eval {
 	my ($server, $text, $nick, $addr, $target) = @_;
 	my $me = $server->{nick};
-	return unless $text =~ s/^${me}[:,] //;
+	return unless $text =~ s/^\Q${me}\E[:,] //;
 	return unless allowed($server, $nick, $addr);
 	my $level = MSGLEVEL_WALLOPS;
 	if ($text =~ /^eval (.+)$/) {
