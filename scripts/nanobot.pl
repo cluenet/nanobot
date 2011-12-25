@@ -335,7 +335,7 @@ sub pubmsg {
 	}
 	elsif($cmd=~/^dns([46]?) (.+)$/){
 		my $v = ($1 or "4");
-		$server->command("exec - -msg $target /home/nathan/bin/ircdns ".shell_esc($srcNick).' '.shell_esc($2).' '.$v);
+		$server->command("exec - -msg $target ~/bin/nb.dns ".shell_esc($srcNick).' '.shell_esc($2).' '.$v);
 	}
 	elsif($cmd=~/^ping (.*)$/){
 		$server->command("exec - -msg $target /home/nathan/bin/ircping ".shell_esc($1));
