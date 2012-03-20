@@ -132,7 +132,8 @@ sub memo_store {
 	}
 
 	if ($do_mail) {
-		open my $s, "|-", ("/usr/sbin/sendmail", "-i", "--", $mail_to);
+		my $nanobot_from = "$from\@nanobot.nathan7.eu";
+		open my $s, "|-", ("/usr/sbin/sendmail", "-r", $nanobot_from, "-i", "--", $mail_to);
 
 		my $hop = shift @fwdpath;
 		while (scalar @fwdpath) {
@@ -158,7 +159,6 @@ sub memo_store {
 			$mail_from =~ s/:[a-z]+$//;
 			print $s qq[Reply-To: $mail_from\n];
 		}
-		my $nanobot_from = "$from\@nanobot.nathan7.eu";
 		print $s qq[From: $from on ClueNet <$nanobot_from>\n];
 		print $s qq[To: "$to_orig" <$mail_to>\n];
 		print $s qq[Subject: Memo from $from\n];

@@ -6,6 +6,8 @@ use IPC::Open2;
 use Mail::Address;
 use MIME::Parser;
 
+our $NANOBOT_HOME = $ENV{NANOBOT_HOME} // "/home/nanobot/nanobot";
+
 use constant {
 	EX_OK		=> 0,
 #	EX_USAGE	=> 64,
@@ -46,7 +48,7 @@ sub lcnick {
 
 sub forward_map_nick {
 	my ($needle) = @_;
-	if (open my $fh, "<", "/home/nanobot/emails.txt") {
+	if (open my $fh, "<", "$NANOBOT_HOME/emails.txt") {
 		while (<$fh>) {
 			chomp();
 			my ($nick, $addr) = split();
@@ -61,7 +63,7 @@ sub forward_map_nick {
 
 sub reverse_map_nick {
 	my ($needle) = @_;
-	if (open my $fh, "<", "/home/nanobot/emails.txt") {
+	if (open my $fh, "<", "$NANOBOT_HOME/emails.txt") {
 		while (<$fh>) {
 			chomp();
 			my ($nick, $addr) = split();
@@ -188,7 +190,7 @@ exit if !$text;
 
 # Deliver
 
-my $db = "/home/nanobot/memos/${rcpt}.db";
+my $db = "$NANOBOT_HOME/memos/${rcpt}.db";
 
 debug("db=$db");
 exit if -t 1;
