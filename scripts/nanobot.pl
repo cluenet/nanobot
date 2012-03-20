@@ -8,7 +8,7 @@ use Cwd;
 use Data::Dumper;
 use Text::ParseWords;
 
-my $home = $ENV{NANOBOT_HOME} // $ENV{HOME};
+my $home = $ENV{NANOBOT_HOME} // "$ENV{HOME}/nanobot";
 
 =changelog
 Aug 07:	grawity
@@ -158,7 +158,8 @@ sub memo_store {
 			$mail_from =~ s/:[a-z]+$//;
 			print $s qq[Reply-To: $mail_from\n];
 		}
-		print $s qq[From: $from on ClueNet <nanobot+$from>\n];
+		my $nanobot_from = "$from\@nanobot.nathan7.eu";
+		print $s qq[From: $from on ClueNet <$nanobot_from>\n];
 		print $s qq[To: "$to_orig" <$mail_to>\n];
 		print $s qq[Subject: Memo from $from\n];
 

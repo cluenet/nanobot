@@ -24,13 +24,13 @@ my %responses = (
 	action => sub {
 		my ($text, $nick) = @_; $_ = $text; undef;
 
-		#if (/^(press|push)es ((a|the) )?button/) {
-		#	"[A nuke is launched at Bash.]",
-		#	"/me dispenses bacon",
-		#	"/me dispenses a cheeseburger",
-		#	"Please don't press the button again.",
-		#	"[A buzzing noise is heard.]"
-		#}
+		if (/^(press|push)es ((a|the) )?button/) {
+			"[A nuke is launched at Bash.]",
+			"/me dispenses bacon",
+			"/me dispenses a cheeseburger",
+			"Please don't press the button again.",
+			"[A buzzing noise is heard.]"
+		}
 	},
 );
 

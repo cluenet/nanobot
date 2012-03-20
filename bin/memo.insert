@@ -1,0 +1,202 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use feature "switch";
+use IPC::Open2;
+use Mail::Address;
+use MIME::Parser;
+
+use constant {
+	EX_OK		=> 0,
+#	EX_USAGE	=> 64,
+	EX_DATAERR	=> 65,
+#	EX_NOINPUT	=> 66,
+	EX_NOUSER	=> 67,
+#	EX_NOHOST	=> 68,
+#	EX_UNAVAILABLE	=> 69,
+#	EX_SOFTWARE	=> 70,
+#	EX_OSERR	=> 71,
+#	EX_OSFILE	=> 72,
+	EX_CANTCREAT	=> 73,
+#	EX_IOERR	=> 74,
+#	EX_TEMPFAIL	=> 75,
+#	EX_PROTOCOL	=> 76,
+#	EX_NOPERM	=> 77,
+#	EX_CONFIG	=> 78,
+};
+
+sub perish {
+	my ($err, $msg) = @_;
+	warn "$msg\n";
+	exit $err;
+}
+
+sub debug {
+	my ($msg) = @_;
+	warn "$msg\n" if -t 1;
+}
+
+# Find address
+
+sub lcnick {
+	my $m = shift;
+	$m =~ tr/[\]/{|}/;
+	return $m;
+}
+
+sub forward_map_nick {
+	my ($needle) = @_;
+	if (open my $fh, "<", "/home/nanobot/emails.txt") {
+		while (<$fh>) {
+			chomp();
+			my ($nick, $addr) = split();
+			if (lcnick($nick) eq $needle) {
+				$addr =~ s/:noirc$//;
+				return $addr;
+			}
+		}
+	}
+	return undef;
+}
+
+sub reverse_map_nick {
+	my ($needle) = @_;
+	if (open my $fh, "<", "/home/nanobot/emails.txt") {
+		while (<$fh>) {
+			chomp();
+			my ($nick, $addr) = split();
+			$addr =~ s/:noirc$//;
+			if ($addr eq $needle) {
+				return $nick;
+			}
+		}
+	}
+	return undef;
+}
+
+sub unhtml {
+	my ($indata) = @_;
+	my ($outh, $inh, $outdata);
+	if (my $pid = open2($outh, $inh, "w3m", "-T", "text/html", "-dump")) {
+		print $inh $indata;
+		close $inh;
+		{ local $/; $outdata = <$outh>; }
+		waitpid($pid, 0);
+	}
+	return $outdata;
+}
+
+sub extract_body {
+	my ($mail) = @_;
+
+	my $content;
+	my $is_html;
+
+	for my $part ($mail->parts_DFS) {
+		my $type = $part->effective_type;
+		my $body = $part->bodyhandle;
+		next if !$body;
+		given ($type) {
+			when ("text/plain") {
+				$content = $body->as_string;
+				$is_html = 0;
+			}
+			when ("text/html") {
+				$content //= $body->as_string;
+				$is_html //= 1;
+			}
+		}
+	}
+
+	if ($is_html) {
+		$content = unhtml($content);
+	}
+
+	return $content;
+}
+
+# Accept
+
+my $time = time;
+my $chan = "*";
+my $sender;
+my $rcpt;
+my $text;
+
+my $parser = MIME::Parser->new;
+$parser->tmp_to_core(1);
+$parser->output_to_core(1);
+
+my $mail = $parser->parse(\*STDIN);
+
+# parse From
+
+my $hFrom = $mail->head->get("from")
+	or perish(EX_DATAERR, "missing From header");
+my ($hdrFrom) = Mail::Address->parse($hFrom);
+$sender = $hdrFrom->address;
+$sender = reverse_map_nick($sender) // $sender;
+
+debug("sender=$sender");
+
+# parse To
+
+my $hTo = $mail->head->get("to")
+	or perish(EX_DATAERR, "missing To header");
+my ($hdrTo) = Mail::Address->parse($hTo);
+if ($hdrTo->address =~ /^nanobot\+(.+?)\@/) {
+	$rcpt = $1;
+} elsif ($hdrTo->address =~ /^(.+?)\@nanobot\./) {
+	$rcpt = $1;
+} else {
+	perish(EX_DATAERR, "invalid recipient addr ".$hdrTo->address);
+}
+defined $rcpt && $rcpt =~ /^[A-Za-z0-9_\[|\]{\\}`~]+$/
+		or perish(EX_NOUSER, "invalid recipient nick '$rcpt'");
+
+debug("rcpt=$rcpt");
+
+my $rcptAddr = forward_map_nick($rcpt);
+if ($rcptAddr) {
+	debug("rcpt=$rcptAddr");
+}
+
+# parse body
+
+$text = "";
+
+my $hSubject = $mail->head->get("subject");
+if ($hSubject) {
+	$hSubject =~ s/\s+/ /g;
+	$hSubject =~ s/\s+$//;
+	$text .= "[$hSubject] ";
+}
+
+my $body = extract_body($mail)
+	or perish(EX_DATAERR, "empty body");
+$body =~ s/\n-- ?\n.*//;
+$body =~ s/\n/ /g;
+$body =~ s/\s+/ /g;
+$body =~ s/\s+$//;
+if ($body) {
+	$text .= $body;
+}
+
+debug("text=$text");
+
+exit if !$text;
+
+# Deliver
+
+my $db = "/home/nanobot/memos/${rcpt}.db";
+
+debug("db=$db");
+exit if -t 1;
+
+if (open my $fh, ">>", $db) {
+	printf $fh "%d\t%s\t%s\t%s\n", $time, $chan, $sender, $text;
+	close $fh;
+	exit(EX_OK);
+} else {
+	perish(EX_CANTCREAT, "opening db failed: $!");
+}
