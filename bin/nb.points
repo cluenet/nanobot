@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os
+import re
+import socket
+import sys
+
+BotAddr = "cluebot.cluenet.org", 58945
+
+Points = dict()
+
+Rx = re.compile(r"(^|[+-])([^+-]+)")
+
+def die(st)
+	print(st)
+	sys.exit(1)
+
+def action(st):
+	print("\001ACTION %s\001" % st)
+
+def process(arg):
+	points = 0
+	nicks = []
+	nicks_add = []
+	nicks_sub = []
+	sentence = []
+
+	for op, nick in Rx.findall(arg):
+		if op in ("+", ""):
+			nicks_add.append(nick)
+		elif op == "-":
+			nicks_sub.append(nick)
+		else:
+			raise ValueError("Unknown operator %r for %r" % op, (nick))
+	
+	if len(nicks_add) == 0:
+		action("beeps.")
+		return
+	
+	points += sum(query_points(n) for n in nicks_add)
+	points -= sum(query_points(n) for n in nicks_sub)
+
+	sentence += [implode(*nicks_add)]
+	if len(nicks_sub) > 0:
+		sentence += ["(minus %s)" % implode(*nicks_sub)]
+	verb = "have" if len(nicks_add) > 1 else "has"
+	sentence += [verb, points, "points."]
+	print(*sentence)
+
+def implode(*args):
+	if len(args) > 1:
+		return ", ".join(args[:-1]) + " and " + args[-1]
+	elif len(args) == 1:
+		return args[0]
+	else:
+		return ""
+
+def raw_query(cmd, arg):
+	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	try:
+		sock.connect(BotAddr)
+		sock.send("%s %s\n" % (cmd, arg))
+		buf = sock.recv(1024)
+		sock.close()
+	except:
+		if os.isatty(0):
+			raise
+		else:
+			die("Das ,points commanden is blownfusen und poppencorken mit spritzensparksen.")
+	return buf
+
+def query_points(nick):
+	if nick not in Points:
+		buf = raw_query("points", nick)
+		ret = buf.rstrip().split(":")
+		if ret[0] == nick:
+			Points[nick] = int(ret[1]) if ret[1] else 0
+		else:
+			raise ValueError("Response contains invalid nick: %r" % ret)
+	return Points[nick]
+
+args = sys.argv[1:]
+argc = 0
+lines = 0
+seen_args = set()
+
+if len(args) >= 10:
+	die("Lick my battery, meatbag.")
+
+for arg in args:
+	argc += 1
+
+	if arg in seen_args:
+		continue
+	else:
+		seen_args.add(arg)
+
+	try:
+		process(arg)
+	except ValueError as e:
+		if os.isatty(0):
+			raise
+		else:
+			print("%r caused an error: %s" % (arg, e))
+	
+	lines += 1
+	if lines >= 5:
+		break
+
+if len(args) - argc > 0:
+	action("runs out of ink")

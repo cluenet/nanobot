@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os
+import socket
+import sys
+
+bot_addr = "cluebot.cluenet.org", 58945
+
+def raw_query(cmd, arg):
+	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	sock.connect(bot_addr)
+	sock.send("%s %s\n" % (cmd, arg))
+	buf = sock.recv(1024)
+	sock.close()
+	return buf
+
+def query_points(nick):
+	buf = raw_query("points", nick)
+	ret = buf.rstrip().split(":")
+	if ret[0] == nick:
+		return int(ret[1]) if ret[1] else 0
+	else:
+		raise ValueError("Response contains invalid nick: %r" % ret)
+
+def implode(*args):
+	if len(args) > 1:
+		return ", ".join(args[:-1]) + " and " + args[-1]
+	elif len(args) == 1:
+		return args[0]
+	else:
+		raise ValueError("Nothing to implode")
+
+args = sys.argv[1:]
+
+if len(args) > 8:
+	print("Lick my battery, meatbag.")
+	sys.exit(1)
+elif len(args) > 5:
+	args = args[:5]
+
+for arg in args:
+	try:
+		if "+" in arg:
+			nicks = arg.split("+")
+			points = sum(query_points(n) for n in nicks)
+			print(implode(*nicks), "have", points, "points.")
+		else:
+			points = query_points(arg)
+			print(arg, "has", points, "points.")
+	except ValueError as e:
+		if os.isatty(0):
+			raise
+		else:
+			print("\001ACTION beeps.\001")
+			print("%r caused an error: %s" % (arg, e))

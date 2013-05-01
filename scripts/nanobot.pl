@@ -7,28 +7,40 @@ use POSIX qw/strftime/;
 use Cwd;
 use Data::Dumper;
 use Text::ParseWords;
+use List::MoreUtils qw(uniq);
 
 my $home = $ENV{NANOBOT_HOME} // "$ENV{HOME}/nanobot";
 
-=changelog
-Aug 07:	grawity
-	Replace From/Sender with Reply-To
-May 16: grawity
-	Add timestamp to memo notices, remove channel name.
-Mar 20: grawity
-	Merge the access list with one in eval.pl
-Oct 01: grawity
-	,setmail accepts nicknames
-Sep 29: grawity
-	Added ,id and ,passwd
-Sep 13: grawity
-	Adjusted memomail to work better with Gmail message snippets
-	Added ,help and ,help setmail
-=cut
+sub get_user_timezone {
+	my ($nick) = @_;
+	eval {
+		use Net::LDAP;
+		my $ldap = Net::LDAP->new("ldapi:///");
+		$ldap->bind;
+		my $res = $ldap->search(
+				base => "ou=people,dc=cluenet,dc=org",
+				scope => "one",
+				filter => "(|(uid=$nick)(clueIrcNick=$nick))",
+				attrs => ["timezone"],
+				timelimit => 7);
+		my @res = map {$_->get_value("timezone")} $res->entries;
+		shift @res;
+	};
+}
 
 my %emails = ();
 my $emails_time = 0;
 my $email_db = "$home/emails.txt";
+
+sub sjoin {
+	my @args = grep {defined} @_;
+	if (@args) {
+		my $last = pop(@args);
+		@args ? join(" and ", join(", ", @args), $last) : $last;
+	} else {
+		"";
+	}
+}
 
 ## Convert a nickname to lowercase
 # IRC treats [\] and {|} as equal
@@ -56,9 +68,8 @@ sub roll {
 
 ## Store a memo to be sent later
 sub memo_store {
-	my ($server, $from, $from_host, $to, $text, $channel) = @_;
+	my ($server, $from, $from_host, $to, $text, $channel, $recvtime) = @_;
 	$to = lc_irc $to; $to =~ s!/!!g;
-	my $recvtime = time;
 
 	load_emails();
 
@@ -132,8 +143,12 @@ sub memo_store {
 	}
 
 	if ($do_mail) {
-		my $nanobot_from = "$from\@nanobot.nathan7.eu";
-		open my $s, "|-", ("/usr/sbin/sendmail", "-r", $nanobot_from, "-i", "--", $mail_to);
+		#my $nanobot_from = "$from\@nanobot.nathan7.eu";
+		my $nanobot_from = "nanobot+$from\@panther.nathan7.eu";
+		open my $s, "|-", ("/usr/sbin/sendmail",
+					"-r", $nanobot_from,
+					"-i",
+					"--", $mail_to);
 
 		my $hop = shift @fwdpath;
 		while (scalar @fwdpath) {
@@ -142,15 +157,16 @@ sub memo_store {
 		}
 
 		# add a Received header
-		my $date = eval {no locale; strftime "%a, %d %b %Y %H:%M:%S %z", localtime $recvtime};
+		my $date = eval {no locale;
+				strftime "%a, %d %b %Y %H:%M:%S %z", localtime $recvtime};
 		print $s
 			qq[Received: from "$from" ($from_host)\n].
 			qq[\tby "$server->{nick}" ($server->{username}\@$server->{tag})\n].
 			qq[\tfor "$to_orig" via IRC (channel $channel); $date\n];
 
 		print $s qq[X-Nanobot-Sender: $from!$from_host\n];
-		#print $s qq[X-Nanobot-Channel: $channel\n]
-		#	if defined $channel;
+		print $s qq[X-Nanobot-Channel: $channel\n]
+			if defined $channel;
 		print $s qq[X-Nanobot-Recipient: $to\n];
 
 		# use sender's email address as From header
@@ -162,6 +178,7 @@ sub memo_store {
 		print $s qq[From: $from on ClueNet <$nanobot_from>\n];
 		print $s qq[To: "$to_orig" <$mail_to>\n];
 		print $s qq[Subject: Memo from $from\n];
+		print $s qq[Content-Type: text/plain; charset=utf-8\n];
 
 		print $s qq[\n];
 		print $s qq[$text\n\n--\040\n$from on $channel, via nanobot\n];
@@ -229,14 +246,31 @@ sub memo_archive {
 
 sub memo_give {
 	my ($server, $nick, $target) = @_;
-	if (!memo_check($nick)) {return;}
+	return if !memo_check($nick);
 
+	my $c = 0;
 	for my $memo (memo_read($nick)) {
+		my $age = time - $memo->{timestamp};
+		if ($age < 10) {
+			$server->command("action $target beeps") if !$c++;
+			next;
+		}
+
 		my $sender = $memo->{sender};
 		# $sender .= "/".$memo->{where} if defined $memo->{where};
 		my $text = $memo->{text};
-		my $time = strftime('%b %d %H:%M', gmtime($memo->{timestamp}));
-		$server->command("msg $target $nick: on $time <$sender> $text");
+
+		my $day = 86400;
+		my $fmt = do {
+			# *memodate*
+			if ($age < $day/2)	{'%H:%M'}
+			elsif ($age < $day*3)	{'%a, %H:%M'}
+			elsif ($age < $day*5)	{'%b %-d, %H:%M'}
+			elsif ($age < $day*60)	{'%b %-d'}
+			else			{'%Y %b %-d'}
+		};
+		my $time = strftime($fmt, gmtime($memo->{timestamp}));
+		$server->command("msg $target $nick: ($time) <$sender> $text");
 	}
 	memo_archive($nick);
 }
@@ -246,10 +280,23 @@ sub mtime($) {
 	return defined $stat? $stat->mtime : 0;
 }
 
-sub save_emails {
-	open my $s, ">", $email_db;
-	for my $nick (sort keys %emails) {
-		printf $s "%s %s\n", $nick, $emails{$nick};
+sub _load_keyvalue {
+	my ($db, $hash) = @_;
+	open my $s, "<", $db;
+	while (my $line = <$s>) {
+		chomp $line; next if $line =~ /^#/;
+		my @line = split " ", $line, 2;
+		my $nick = lc_irc $line[0];
+		$hash->{$nick} = $line[1];
+	}
+	close $s;
+}
+
+sub _save_keyvalue {
+	my ($db, $hash) = @_;
+	open my $s, ">", $db;
+	for my $nick (sort keys %$hash) {
+		printf $s "%s %s\n", $nick, $hash->{$nick};
 	}
 	close $s;
 }
@@ -257,18 +304,13 @@ sub save_emails {
 sub load_emails {
 	my $dbtime = mtime $email_db;
 	return unless ($dbtime > $emails_time);
-
-	%emails = ();
 	$emails_time = $dbtime;
-	open my $s, "<", $email_db;
-	while (my $line = <$s>) {
-		chomp $line; next if $line =~ /^#/;
+	%emails = ();
+	_load_keyvalue($email_db, \%emails);
+}
 
-		my @line = split " ", $line, 2;
-		my $nick = lc_irc $line[0];
-		$emails{$nick} = $line[1];
-	}
-	close $s;
+sub save_emails {
+	_save_keyvalue($email_db, \%emails);
 }
 
 sub d { Irssi::print($_[0]); }
@@ -279,14 +321,40 @@ sub shell_esc {
 	return "'$str'";
 }
 
+my %powerup;
+
 sub pubmsg {
 	my ($server, $msg, $nick, $addr, $target) = @_;
 
 	my $my_nick = $server->{nick};
+	
+	my $ischannel = $server->ischannel($target);
 
 	# send memos
 	if ($my_nick and $nick !~ /^_?nanobot/) {
 		memo_give($server, $nick, $target);
+	}
+
+	if ($ischannel && $msg =~ /^
+			((↑|\^|up)\s*){2}
+			((↓|v|down)\s*){2}
+			((⇆|←\s*→|↔|<\s*>|left\s*right)\s*){2}
+			b\s*a(\s*start)?
+		/ix) {
+		my $_nick = lc_irc($nick);
+		if (exists $powerup{$_nick} && time - $powerup{$_nick} < 600) {
+			return;
+		}
+		$powerup{$_nick} = time;
+		$server->command("^msg ChanServ voice $target $nick");
+		$server->command("^notice $nick POWERUP UNLOCKED: SIGN OF L33TNESS");
+		Irssi::timeout_add_once(1000*60, sub {
+			my $data = shift;
+			my ($server, $target, $nick) = @$data;
+			$server->command("^msg ChanServ devoice $target $nick");
+			$server->command("^notice $nick POWERUP EXPIRED");
+		}, [$server, $target, $nick]);
+		return;
 	}
 
 	# compat:
@@ -316,70 +384,99 @@ sub pubmsg {
 		$server->command("^notice $nick $_") for (
 			"--- nanomemo service ---",
 			"\002,memo\002 <nick> <message>  Send a memo",
+			"\002,setmail\002 <email>        Forward memos (see \037,help setmail\037)",
 			"--- other nanobot commands --",
 			"\002,d\002 [posix_tz] [format]  Display current Gregorian date",
 			"\002,ddate\002 [format]         Display current Discordian date",
-			"\002,dns\002 <host|ipaddr>      DNS resolution",
+			"\002,dns\002 <host|ipaddr>      DNS resolution (IPv4)",
 			"\002,dns6\002 <host|ipaddr>     DNS resolution (IPv6)",
 			"\002,gcalc\002 <expression>     Google Calculator",
-			"\002,id\002 <user|uid>          Look up an account",
+			"\002,id\002 <user|uid>          Look up a Cluenet account",
 			"\002,passwd\002 <user|uid>      Look up a passwd entry",
-			"\002,setmail\002                Forward memos (see \037,help setmail\037)",
+			"\002,roll\002 <XdY>             Roll dice",
 			"--- end ---",
 		);
 	}
-	elsif ($cmd =~ /^id ([0-9a-z-_]+)$/) {
+	elsif ($cmd =~ /^id\s+(\S+)$/) {
 		$server->command("exec - -msg $target /home/nanobot/bin/nb.id $1");
 	}
-	elsif ($cmd =~ /^passwd ([0-9a-z-_]+)$/) {
+	elsif ($cmd =~ /^passwd\s+(\S+)$/) {
 		$server->command("exec - -msg $target /home/nanobot/bin/nb.getpwent $1");
 	}
-	elsif($cmd=~/^dns([46]?) (.+)$/){
+	elsif ($cmd =~ /^points\s+(.+)$/) {
+		my $args = join(" ", map {shell_esc($_)} split(/\s+/, $1));
+		$server->command("exec - -msg $target ~/bin/nb.points $args");
+	}
+	elsif ($cmd =~ /^dns([46]?) (.+)$/) {
 		my $v = ($1 or "4");
-		$server->command("exec - -msg $target ~/bin/nb.dns ".shell_esc($srcNick).' '.shell_esc($2).' '.$v);
+		$server->command("exec - -msg $target ~/bin/nb.dns ".shell_esc($nick).' '.shell_esc($2).' '.$v);
 	}
 	elsif($cmd=~/^ping (.*)$/){
 		$server->command("exec - -msg $target /home/nathan/bin/ircping ".shell_esc($1));
 	}
 	elsif ($cmd =~ /^gcalc (the answer to life, the universe and everything)$/) {
-		$server->command("msg $target $srcNick: $1 = 41.99999999999999...");
+		$server->command("msg $target $nick: $1 = 41.99999999999999...");
 	}
 	elsif($cmd=~/^gcalc 2\s*\+\s*2\s*$/){
-		$server->command("/msg $target $srcNick: 2 + 2 = 5 (for sufficiently large values of 2)");
+		$server->command("/msg $target $nick: 2 + 2 = 5 (for sufficiently large values of 2)");
 	}
 	elsif($cmd=~/^gcalc (?:1 )?nathans? in (?:eur|euros|usd|dollars|us dollars)/i){
-		$server->command("/msg $target $srcNick: Priceless.");
+		$server->command("/msg $target $nick: Priceless.");
 	}
 	elsif($cmd=~/^gcalc (?:[0-9]* )?(whore|prostitute|blowjob)s? in (?:eur|euros|usd|dollars|us dollars)/i){
-		$server->command("/msg $target $srcNick: Pricing information currently not available.");
+		$server->command("/msg $target $nick: Pricing information currently not available.");
 	}
 	elsif($cmd=~/^gcalc (a |1 )?cookies? in (?:eur|euros|usd|dollars|us dollars)/i){
-		my $title = ($srcNick =~ /^(joannac|lamia|crazytales)/i)? "ma'am" : "sir";
+		my $title = ($nick =~ /^(joannac|lamia|crazytales)/i)? "ma'am" : "sir";
 
-		$server->command("/msg $target $srcNick: For you $title? Free.");
-		$server->command("/action $target gives $srcNick a cookie");
-		$server->command("/msg $target $srcNick: Your order has been delivered. Have a clueful day!");
+		$server->command("/msg $target $nick: For you $title? Free.");
+		$server->command("/action $target gives $nick a cookie");
+		$server->command("/msg $target $nick: Your order has been delivered. Have a clueful day!");
 	}
 	elsif($cmd=~/^gcalc (.*)$/){
 		$server->command("exec - -msg $target /home/nanobot/bin/nb.gcalc ".shell_esc($1));
 	}
 #	elsif($cmd=~/^gdef(?:ine)? (.*)$/){
-#		$server->command("exec - -msg $target /home/nathan/bin/ircgdefine ".shell_esc($srcNick).' '.shell_esc($1));
+#		$server->command("exec - -msg $target /home/nathan/bin/ircgdefine ".shell_esc($nick).' '.shell_esc($1));
 #	}
 
+#	elsif ($cmd =~ /^roll [Rr]ick$/) {
+#		Irssi::timeout_add_once(1000*15, sub {
+#			$server->command("nick $my_nick");
+#		}, "");
+#		$server->command("nick NGGYU");
+#	}
 	elsif ($cmd =~ /^roll (\d{1,2})(?:d(\d{1,6}))?$/) {
 		my $r = roll($1, $2);
-		$server->command("msg $target $srcNick got $r");
+		$server->command("msg $target $nick got $r");
 	}
 	elsif ($cmd eq "roll") {
-		$server->command("^notice $srcNick $_") for (
-			"Usage: roll XdY, where X is count and Y is max"
+		$server->command("^notice $nick $_") for (
+			"Usage: \002roll X\002 or \002roll XdY\002, where X is count and Y is max"
 		);
 	}
 	elsif ($cmd =~ /^4lw ([0-9.]+)/) {
-		$server->command("exec - -msg $target /home/nathan/bin/irc4lw ".shell_esc($srcNick).' '.shell_esc($1));
+		$server->command("exec - -msg $target /home/nathan/bin/irc4lw ".shell_esc($nick).' '.shell_esc($1));
 	}
-	elsif ($cmd =~ /^d(?:ate)?( .+)?$/) {
+	elsif ($cmd =~ /^dd(?:\s+(\S+))?$/) {
+		my (@exec, $exec);
+		my $nick = lc ($1 // $nick);
+
+		my $TZ = get_user_timezone($nick);
+
+		if (!defined $TZ) {
+			$server->command("msg $target I don't know ${nick}'s timezone.");
+			return;
+		}
+		
+		unshift @exec, ("env", "TZ=$TZ", "date");
+
+		push @exec, "+%a, %d %b %Y %H:%M:%S %z ($TZ)";
+
+		$exec = join(" ", map {s/[\$\`\"\\]/\\$&/g; qq/"$_"/} @exec);
+		$server->command("exec - -msg $target $exec");
+	}
+	elsif ($cmd =~ /^d(?:ate)?(\s+.+)?$/) {
 		my (@format, @wantdate, @exec, $exec);
 		my $TZ = "UTC";
 
@@ -387,14 +484,20 @@ sub pubmsg {
 		for (shellwords($args)) {
 			if (/^([+-])(\d{1,2})$/) {
 				# +N and -N hour offsets
-				$TZ = "GMT$1$2";
+				$TZ = "UTC$1$2";
 				$TZ =~ y/+-/-+/;
-			} elsif (/^[\w-]+\/[\w-]+$/) {
+			} elsif (/^([+-])(\d{2}):?(\d{2})$/) {
+				# +NNNN and -NNNN offsets
+				$TZ = "UTC$1$2:$3";
+				$TZ =~ y/+-/-+/;
+			} elsif (/^:?[\w-]+\/[\w-]+$/) {
 				# Location/City timezone specifiers
 				$TZ = $_;
 			} elsif (/^[A-Z]{3,4}$/) {
 				# TLA timezone specifiers
 				$TZ = uc $_;
+			} elsif (/^(@\d+)$/) {
+				push @wantdate, $_;
 			} elsif (/^@(.+)$/) {
 				# @blah human-readable times
 				@wantdate = ($1);
@@ -420,7 +523,7 @@ sub pubmsg {
 		$server->command("exec - -msg $target $exec");
 	}
 
-	elsif ($cmd =~ /^ddate(?: (.+))?$/) {
+	elsif ($cmd =~ /^ddate(?:\s+(.+))?$/) {
 		my ($format, @exec, $exec);
 		@exec = ("ddate");
 		if (defined $1) {
@@ -436,17 +539,45 @@ sub pubmsg {
 		$server->command("exec - -msg $target $exec");
 	}
 
-	elsif (@args = $cmd =~ /^memo (.+?) (.+)$/) {
-		my ($rcpt, $memo) = @args;
-		my $stored = memo_store($server, $nick, $addr, $rcpt, $memo, $target);
+	elsif (@args = $cmd =~ /^memo( send)?\s+((?:[^\s]+(?:,\s*|\s*,\s+))*[^\s]+)\s+(.+)$/) {
+		my ($foo, $rcpts, $memo) = @args;
+		my $time = time;
+		my (@success, @fail, @rcpts, @msg);
+		@rcpts = grep {length} split(/\s*,\s*/, $rcpts);
+		if (@rcpts > 5) {
+			push @msg, "Lick my battery.";
+		} else {
+			for my $rcpt (uniq @rcpts) {
+				if (memo_store($server, $nick, $addr, $rcpt, $memo, $target, $time)) {
+					push @success, $rcpt;
+				} else {
+					push @fail, $rcpt;
+				}
+			}
 
-		my $verb = $stored ? "sent" : "discarded";
-		$server->command("msg $target $nick: Memo to $rcpt $verb.");
+			my $success = sjoin(@success);
+			my $fail = sjoin(@fail);
+
+			if (@success and @fail) {
+				push @msg, "Memo sent to $success (failed: $fail)";
+			} elsif (@success) {
+				if (defined $foo and $foo =~ /send/) {
+					push @msg, "Do I look like MemoServ to you? Fine, memo served.";
+				} else {
+					push @msg, "Memo to $success sent.";
+				}
+			} elsif (@fail) {
+				push @msg, "Failed to send memo to $fail.";
+			} else {
+				push @msg, "wat";
+			}
+		}
+		$server->command("msg $target $nick: $_") for @msg;
 	}
 
 	elsif ($cmd =~ /^setmail$/) {
 		load_emails;
-		my $addr = $emails{lc_irc $srcNick};
+		my $addr = $emails{lc_irc $nick};
 
 		my $msg;
 		if (defined $addr) {
@@ -462,11 +593,11 @@ sub pubmsg {
 		} else {
 			$msg = "No email address on record; you will be notified about memos on IRC.";
 		}
-		$server->command("^notice $srcNick $msg");
+		$server->command("^notice $nick $msg");
 	}
 
 	elsif ($cmd =~ /^setmail help$/ or $cmd =~ /^help setmail$/) {
-		$server->command("^notice $srcNick $_") for (
+		$server->command("^notice $nick $_") for (
 			"--- nanomemos: forwarding ---",
 			"\002,setmail \037email\037\002        Forward your memos to email",
 			"\002,setmail \037email\037:noirc\002  ...but don't notify on IRC",
@@ -478,18 +609,18 @@ sub pubmsg {
 
 	elsif ($cmd =~ /^setmail (.*)$/) {
 		my $addr = $1;
-		my $k = lc_irc $srcNick;
+		my $k = lc_irc $nick;
 		load_emails;
 		if ($addr =~ /^(\*|-|none|)$/) {
 			if (defined $emails{$k}) {
 				delete $emails{$k};
-				$server->command("^notice $srcNick Email unset.");
+				$server->command("^notice $nick Email unset.");
 				save_emails;
 			}
 		}
 		else {
 			$emails{$k} = $addr;
-			$server->command("^notice $srcNick Email set to $addr");
+			$server->command("^notice $nick Email set to $addr");
 			save_emails;
 		}
 	}
@@ -513,13 +644,13 @@ sub pubmsg {
 	delete $ENV{QUERY_STRING};
 }
 sub privmsg{
-	my ($server,$msg,$srcNick,$srcAddress)=@_;
-#	$server->command("/msg #nanobot ".$server->{tag}." <$srcNick!$srcAddress> $msg");
+	my ($server,$msg,$nick,$srcAddress)=@_;
+#	$server->command("/msg #nanobot ".$server->{tag}." <$nick!$srcAddress> $msg");
 }
 sub invite{
-	my ($server,$channel,$srcNick,$srcAddress)=@_;
+	my ($server,$channel,$nick,$srcAddress)=@_;
 	$server->channels_join($channel, 1);
-	$server->command("action ".$channel." moos contentedly at ".$srcNick);
+	$server->command("action ".$channel." moos contentedly at ".$nick);
 }
 sub jchan{
 	my ($channel)=@_;

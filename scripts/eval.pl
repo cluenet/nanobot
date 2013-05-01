@@ -18,6 +18,8 @@ our @allowed = qw(
 	grawity!grawity@*.cluenet.org
 	grawity!grawity@192.168.151.102
 	grawity!grawity@*.nathan7.eu
+
+	fahadsadah!fahad@equal.cluenet.org
 );
 
 #Irssi::theme_register([
@@ -36,7 +38,9 @@ sub do_eval {
 	my $level = MSGLEVEL_WALLOPS;
 	if ($text =~ /^eval (.+)$/) {
 		$text = $1;
-		Irssi::print("Eval: !$nick! $text", $level);
+		my $text_esc = $text;
+		$text_esc =~ s/%/%%/g;
+		Irssi::print("Eval: !$nick! $text_esc", $level);
 		my $d = Data::Dumper->new([eval $text]);
 		if ($@) {
 			$server->command("msg $target $nick: Error: $@");

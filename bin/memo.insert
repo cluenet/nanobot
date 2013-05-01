@@ -190,7 +190,7 @@ exit if !$text;
 
 # Deliver
 
-my $db = "$NANOBOT_HOME/memos/${rcpt}.db";
+my $db = "$NANOBOT_HOME/memos/".lc($rcpt).".db";
 
 debug("db=$db");
 exit if -t 1;
