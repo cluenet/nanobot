@@ -162,7 +162,8 @@ sub memo_store {
 		print $s
 			qq[Received: from "$from" ($from_host)\n].
 			qq[\tby "$server->{nick}" ($server->{username}\@$server->{tag})\n].
-			qq[\tfor "$to_orig" via IRC (channel $channel); $date\n];
+			qq[\tfor "$to_orig" via IRC (channel $channel);\n].
+			qq[\t$date\n];
 
 		print $s qq[X-Nanobot-Sender: $from!$from_host\n];
 		print $s qq[X-Nanobot-Channel: $channel\n]
@@ -180,8 +181,15 @@ sub memo_store {
 		print $s qq[Subject: Memo from $from\n];
 		print $s qq[Content-Type: text/plain; charset=utf-8\n];
 
+		# end header
 		print $s qq[\n];
-		print $s qq[$text\n\n--\040\n$from on $channel, via nanobot\n];
+
+		# body
+		print $s
+			qq[$text\n].
+			qq[\n].
+			qq[--\040\n].
+			qq[$from on $channel, via nanobot\n];
 
 		close $s;
 	}
