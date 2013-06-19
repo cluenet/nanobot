@@ -146,7 +146,7 @@ sub memo_store {
 		#my $nanobot_from = "$from\@nanobot.nathan7.eu";
 		my $nanobot_from = "nanobot+$from\@panther.nathan7.eu";
 		open my $s, "|-", ("/usr/sbin/sendmail",
-					"-r", $nanobot_from,
+					"-f", $nanobot_from,
 					"-i",
 					"--", $mail_to);
 
